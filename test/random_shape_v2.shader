@@ -1,4 +1,4 @@
-Shader "Custom/Random2BitShapeShader"
+Shader "Custom/Random2BitShapeShaderV2"
 {
     Properties
     {
@@ -37,13 +37,27 @@ Shader "Custom/Random2BitShapeShader"
         // エミッション
         _EmissionIntensity ("Emission Intensity", Range(0.0, 5.0)) = 0.0
         _EmissionColor ("Emission Color", Color) = (1,1,1,1)
+        
+        // マスク用のテクスチャとパラメータを追加
+        _MaskTex ("Mask Texture", 2D) = "white" {}
+        _MaskStrength ("Mask Strength", Range(0.0, 1.0)) = 1.0
+        _MaskInvert ("Invert Mask", Range(0.0, 1.0)) = 0.0
     }
     
     SubShader
     {
-        Tags { "RenderType"="Transparent" "Queue"="Transparent" }
+        // タグを修正して適切なレンダリング順序を設定
+        Tags 
+        { 
+            "RenderType" = "Transparent"
+            "Queue" = "Transparent+100"
+            "IgnoreProjector" = "True"
+        }
+        
+        // アルファブレンドの設定を修正
         Blend SrcAlpha OneMinusSrcAlpha
         ZWrite Off
+        Cull Off
         
         Pass
         {
@@ -88,6 +102,11 @@ Shader "Custom/Random2BitShapeShader"
             float _PulseSpeed;
             float _EmissionIntensity;
             float4 _EmissionColor;
+            
+            // マスク用のテクスチャとパラメータを追加
+            sampler2D _MaskTex;
+            float _MaskStrength;
+            float _MaskInvert;
             
             // ハッシュ関数
             float hash(float2 p)
@@ -198,6 +217,13 @@ Shader "Custom/Random2BitShapeShader"
                 // 形状テクスチャからサンプリング
                 float4 shapeSample = tex2D(_ShapeTex, transformedUV);
                 
+                // テクスチャの縁を処理
+                float shapeAlpha = shapeSample.r;
+                if (max(transformedUV.x, transformedUV.y) > 1.0 || min(transformedUV.x, transformedUV.y) < 0.0)
+                {
+                    shapeAlpha = 0.0;
+                }
+                
                 // エッジのソフトネス
                 float edgeMask = smoothstep(0.0, _EdgeSoftness, min(transformedUV.x, transformedUV.y)) *
                                   smoothstep(0.0, _EdgeSoftness, 1.0 - max(transformedUV.x, transformedUV.y));
@@ -212,15 +238,29 @@ Shader "Custom/Random2BitShapeShader"
                 // パルスエフェクト
                 float pulse = lerp(1.0, 1.0 + sin(_Time.y * _PulseSpeed) * _PulseIntensity, _PulseIntensity);
                 
-                // 最終カラー
+                // マスクテクスチャからサンプリング
+                float maskValue = tex2D(_MaskTex, i.uv).r;
+                maskValue = lerp(maskValue, 1.0 - maskValue, _MaskInvert);
+                maskValue = lerp(1.0, maskValue, _MaskStrength);
+                
+                // 最終カラー計算を修正
                 float4 finalColor;
-                finalColor.rgb = lerp(_BackgroundColor.rgb, shapeColor * pulse, 
-                    shapeSample.r * edgeMask * _Opacity * lifetimeOpacity);
-                finalColor.a = shapeSample.r * edgeMask * _Opacity * lifetimeOpacity;
+                float alpha = shapeAlpha * edgeMask * _Opacity * lifetimeOpacity * maskValue;
                 
-                // エミッション追加
-                finalColor.rgb += _EmissionColor.rgb * _EmissionIntensity * finalColor.a;
-                
+                // アルファ値が非常に小さい場合は早期に描画をスキップ
+                if (alpha < 0.01)
+                {
+                    discard;  // 完全に透明な部分は描画しない
+                    return float4(0, 0, 0, 0);
+                }
+
+                // 図形の色を計算
+                finalColor.rgb = shapeColor * pulse;
+                // エミッションを追加
+                finalColor.rgb += _EmissionColor.rgb * _EmissionIntensity;
+                // アルファ値を設定
+                finalColor.a = alpha;
+
                 return finalColor;
             }
             ENDCG
