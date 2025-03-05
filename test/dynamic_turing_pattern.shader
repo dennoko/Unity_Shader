@@ -98,7 +98,7 @@ Shader "Custom/DynamicTuringPatternShader"
             }
             
             // ボロノイ距離計算
-            float voronoiDistance(float2 point, float2 cell, out float2 nearestCell)
+            float voronoiDistance(float2 p, float2 cell, out float2 nearestCell)
             {
                 float minDist = 10.0;
                 nearestCell = cell;
@@ -111,7 +111,7 @@ Shader "Custom/DynamicTuringPatternShader"
                         float2 neighborCell = cell + float2(x, y);
                         float2 controlPoint = calculateControlPoint(neighborCell / _Density, hash(neighborCell));
                         
-                        float dist = distance(point, controlPoint);
+                        float dist = distance(p, controlPoint);
                         
                         if (dist < minDist)
                         {
